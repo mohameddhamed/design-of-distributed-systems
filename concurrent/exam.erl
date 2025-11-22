@@ -1,143 +1,174 @@
 -module(exam).
 -compile(export_all).
 
-% Task 1: Difference of lists
-% Compare two lists (position-by-position), and return the differences!
-% The result should include the elements of the first list that differ from the elements of the second.
-% The function should check all the elements of the first list.
+% Write a function any_order_doubler(List) that takes a list of integers.
 
-% Function name
+% For every integer, spawn a process that doubles the number.
+% The process should send the result back to the parent (you).
+% The parent must collect all results into a list.
+% Constraint: The order of the output list does not matter (e.g., if input is [1, 2, 3], output can be [6, 2, 4]).
 
-differences(L, []) -> L;
-differences([], _) -> [];
-differences([H1 | T1], [H2 | T2]) when H1 =/= H2 -> [H1 | differences(T1, T2)];
-differences([_ | T1], [_ | T2]) -> differences(T1, T2).
+double_and_send(I, Pid) ->
+    timer:sleep(rand:uniform(100)),
+    Pid ! {self(), I * 2}.
 
-% Test cases
-
-% exam:differences("","") == [].
-% exam:differences("","apple") == [].
-% exam:differences("apple", "") == "apple".
-% exam:differences("apple", "apple") == [].
-% exam:differences("apple", "peach") == "apple".
-% exam:differences("apple", "apfel") == "ple".
-% exam:differences([1,2,3], [3,2,1]) == [1,3].
-
-% Task 2: Apply all
-% Define a function that takes a list of functions and a list of some elements as arguments.
-% The function applies each function to all the elements of the list. The order of the evaluation matters.
-% First, the first given function should be evaluated on all the elements of the list, then the second, etc.
-
-% Function name
-
-applyAll([F1 | T1], L) -> f_apply(F1, L) ++ applyAll(T1, L);
-applyAll(_, []) -> [];
-applyAll([], _) -> [].
-
-f_apply(F, [H | T]) -> [F(H) | f_apply(F, T)];
-f_apply(_, []) -> [].
-
-% Test cases
-
-% exam:applyAll([fun(A) -> A + 1 end, fun(A) -> A * 2 end], [1, 2, 3, 4]) == [2, 3, 4, 5, 2, 4, 6, 8].
-% exam:applyAll([fun(A) -> A+2 end], []) == [].
-% exam:applyAll([], [apple, pear]) == [].
-% exam:applyAll([fun erlang:is_list/1], [apple, pear]) == [false,false].
-% exam:applyAll([fun erlang:is_list/1], [apple, pear, []]) == [false,false,true].
-
-% Task 3: Positions
-% Define a function that returns the positions of a given element in a list! The indexing starts with `1`.
-
-% Function name
-
-% getPositions
-getPositions(Elem, L) -> getPositions_1(Elem, L, 1).
-getPositions_1(Elem, L, Start) ->
-    case getPosition(Elem, L, Start) of
-        {-1, _} ->
-            [];
-        {Index, T} ->
-            [Index | getPositions_1(Elem, T, Index + 1)]
-    end.
-%     if Index == -1
-%     getPositions(Elem, L)
-% getPositions(Elem, L, Start) ->
-
-getPosition(Elem, [H | T], Index) when Elem == H -> {Index, T};
-getPosition(Elem, [_ | T], Index) -> getPosition(Elem, T, Index + 1);
-getPosition(_, [], _) -> {-1, []}.
-
-% Test cases
-
-% exam:getPositions($e, "apple") == [5].
-% exam:getPositions($p, "apple") == [2,3].
-% exam:getPositions(1, []) == [].
-% exam:getPositions(1, [1,3,2,1,2,34,21,1,1,4]) == [1,4,8,9].
-
-% Task 4: Riffle shuffle
-% Define the riffle shuffle algorithm on lists!
-% The function takes a list as an argument, it splits the list into two "equal" parts
-% (if the number of elements is odd, then the first part should be shorter),
-% then merges the two sublists into a new list alternately (one from the first, one from the second repeatedly).
-
-% Example:
-
-%    [1,2,3,4,5]
-
-%   [1,2] [3,4,5]
-
-%    [1,3,2,4,5]
-
-% Function name
-
-riffleShuffle(L) -> shuffle(riffle(L)).
-
-riffle(L) -> lists:split(length(L) div 2, L).
-
-shuffle({[H1 | T1], [H2 | T2]}) -> [H1, H2 | shuffle({T1, T2})];
-shuffle({[], L}) -> L;
-shuffle({L, []}) -> L.
-
-% Test cases
-
-% exam:riffleShuffle([]) == [].
-% exam:riffleShuffle([1]) == [1].
-% exam:riffleShuffle([1,2]) == [1,2].
-% exam:riffleShuffle([1,2,3]) == [1,2, 3].
-% exam:riffleShuffle([1,2,3,4]) == [1,3,2,4].
-% exam:riffleShuffle([1,2,3,4,5]) == [1,3,2,4,5].
-% exam:riffleShuffle([1,2,3,4,5,6]) == [1,4,2,5,3,6].
-% exam:riffleShuffle([1,2,3,4,5,6,7]) == [1,4,2,5,3,6,7].
-% exam:riffleShuffle([1,4,2,5,3,6,7]) == [1,5,4,3,2,6,7].
-
-% Task 5: Error handling
-% Modify the definition of the applyAll/2  function to handle the runtime
-% errors occurring during the evaluations of the function arguments on the elements.
-% Put the atom bad_fun_argument into the returning list when a runtime error occurs.
-
-applyAll2([F1 | T1], L) -> f_apply2(F1, L) ++ applyAll2(T1, L);
-applyAll2(_, []) -> [];
-applyAll2([], _) -> [].
-
-f_apply2(F, [H | T]) ->
-    Val =
-        try
-            F(H)
-        catch
-            _:_ -> bad_fun_argument
-        end,
-    [Val | f_apply2(F, T)];
-f_apply2(_, []) ->
+spawn_list([H | T]) ->
+    spawn(exam, double_and_send, [H, self()]),
+    spawn_list(T);
+spawn_list([]) ->
     [].
 
-% Test cases
+any_order_doubler(L) ->
+    spawn_list(L),
+    receive_list(L).
 
-% exam:applyAll2([fun(A) -> A+2 end], [1,apple]) == [3,bad_fun_argument].
-% exam:applyAll2([fun erlang:atom_to_list/1, fun(A) -> A*2 end], [1,apple,3, '12']) ==[bad_fun_argument, "apple", bad_fun_argument, "12", 2,  bad_fun_argument, 6, bad_fun_argument].
-% exam:applyAll2([fun(A) -> A+1 end, fun(A) -> A*2 end], [1,2,3,4]) == [2,3,4,5,2,4,6,8].
+receive_list([_ | T]) ->
+    receive
+        {_, Doubled} -> [Doubled | receive_list(T)]
+    end;
+receive_list([]) ->
+    [].
 
-% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Write a function ordered_doubler(List) that takes a list of integers.
 
-% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Spawn a process for every integer to double it.
+% Constraint: The result must be in the exact same order as the input.
+% (Input: [1, 2, 3], Output must be [2, 4, 6]).
+% The "Pid Trick" Hint (Crucial for your exam):
+% If you just use receive Result -> ..., you get the fastest one first (wrong order).
+% However, when you spawn a process, you get a Pid.
+% Instead of waiting for any message,
+% can you iterate through your list of Pids and wait for a message from specific Pids in order?
 
-% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% code
+% Erlang
+% Logic visualization:
+% 1. Spawn Process A (for number 1) -> Save PidA
+% 2. Spawn Process B (for number 2) -> Save PidB
+% 3. Wait specifically for PidA.
+% 4. Wait specifically for PidB.
+
+create_pid_list([H | T]) -> [spawn(exam, double_and_send, [H, self()]) | create_pid_list(T)];
+create_pid_list([]) -> [].
+
+process_pids([H | T]) ->
+    receive
+        {H, Doubled} -> [Doubled | process_pids(T)]
+    end;
+process_pids([]) ->
+    [].
+
+ordered_doubler(L) ->
+    process_pids(create_pid_list(L)).
+
+% Task 1: Parallel apply all (10 points)
+% We have a list of functions FS and some values LS. Define a function
+% that applies each function to all the elements of the
+% list in a separate process. The order of the resulted values matters!
+
+% For example:
+
+% If the input is:
+% FS = [f,g,h]
+% LS = [a,b,c,d]
+
+% The result has to be:
+% [f(a), f(b), f(c), f(d), g(a), g(b), g(c), g(d), h(a), h(b), h(c), h(d)]
+% %% the order is the same as it would be evaluated sequentially
+
+% You have two options for the level of parallelization.
+% You can do the parallelization based on the number of functions or per item.
+
+% IMPORTANT: The solution has to do the computation in parallel.
+% First, all the spawning has to be done, and after it, the results have to be collected!
+% "Sequential" solutions are not acceptable!
+% For example, the solution that starts a process and immediately waits for the result,
+% then starts the second process only if the first is already finished, etc., will be rejected.
+
+% applyAllPar(FS :: list(function()), LS :: list()) -> Result :: list()
+
+apply_and_send(Fct, H, Pid) -> Pid ! {self(), apply(Fct, [H])}.
+
+create_pid_list(Fct, [H | T]) ->
+    [spawn(exam, apply_and_send, [Fct, H, self()]) | create_pid_list(Fct, T)];
+create_pid_list(_, []) ->
+    [].
+
+collect_pid_list([H | T], LS) ->
+    create_pid_list(H, LS) ++ collect_pid_list(T, LS);
+collect_pid_list([], _) ->
+    [].
+
+applyAllPar(FS, LS) ->
+    receive_all(collect_pid_list(FS, LS)).
+
+receive_all([H | T]) ->
+    receive
+        {H, Value} -> [Value | receive_all(T)]
+    end;
+receive_all([]) ->
+    [].
+
+% Test cases (all should evaluate to `true`)
+
+% exam:applyAllPar([fun(A) -> A+1 end, fun(A) -> A*2 end], [1,2,3,4]) == [2,3,4,5,2,4,6,8].
+% exam:applyAllPar([fun(A) -> A+2 end], []) == [].
+% exam:applyAllPar([], [apple, pear]) == [].
+% exam:applyAllPar([fun erlang:is_list/1], [apple, pear]) == [false,false].
+% exam:applyAllPar([fun erlang:is_list/1], [apple, pear, []]) == [false,false,true].
+
+%%%
+
+% Prep Task 1: The Safe Worker (Error Handling)
+% Standard Erlang processes crash if they encounter an error.
+% For this exam task, you need a worker that "catches" the crash and sends a safe error message instead.
+
+% Task:
+% Write a function safe_spawn(Func, Arg) that spawns a process.
+
+% The process should try to run Func(Arg).
+% If it works, send {ok, Result, self()} to the parent.
+% If it crashes (e.g., badarith or function_clause), send {error, crash, self()} to the parent.
+% Hint: Use try ... catch ... end.
+% Example:
+
+% Pid = safe_spawn(fun(X) -> 10/X end, 0).
+% % Should not crash the shell. Should send {error, crash, Pid} to you.
+
+tryFun(Fun, Args, Pid) ->
+    try
+        Pid ! {ok, apply(Fun, Args), self()}
+    catch
+        _:_ -> Pid ! {error, crash, self()}
+    end.
+
+safe_spawn(Fun, Arg) ->
+    spawn(exam, tryFun, [Fun, Arg, self()]).
+
+% Prep Task 2: The "Referee" (Stateful Collection)
+% This simulates the logic of "Waiting for everyone, but remembering the winner."
+
+% Task:
+% Write a function referee(N).
+
+% It should wait for N messages.
+% The messages can be {ok, Val} or {error, Reason}.
+% It must keep listening until it has received exactly N messages.
+% Return Value:
+% It should return the value of the first {ok, Val} message it received.
+% If it received only {error, ...} messages (no successes), return no_proper_result.
+% Hint:
+% You need a recursive function that keeps track of two things:
+
+% How many messages are left to receive (N).
+% What is the best result I have seen so far? (CurrentBest).
+
+referee(N) -> loop(N, no_proper_result).
+loop(0, BestValue) ->
+    BestValue;
+loop(N, BestValue) ->
+    receive
+        {ok, Val} when BestValue == no_proper_result -> loop(N - 1, Val);
+        {ok, _} -> loop(N - 1, BestValue);
+        {error, _} -> loop(N - 1, BestValue)
+    end.
