@@ -231,3 +231,226 @@ fib(N) -> fib(N - 1) + fib(N - 2).
 % exam:speculativeEval([fun exam:fib/1, fun exam:fib/1,fun exam:fib/1, fun exam:fib/1], [apple, pear, 22, plum, foo, bar]) == 17711.
 % exam:speculativeEval([fun exam:fib/1, fun exam:fib/1,fun exam:fib/1, fun exam:fib/1], [apple, pear, 22, plum, 23, bar]) == 17711.
 % exam:speculativeEval([fun exam:fib/1, fun exam:fib/1,fun exam:fib/1, fun exam:fib/1], [apple, pear, plum, orange, foo, bar]) == no_proper_result.
+
+% Task 1: Parallel mergesort (10 points)
+% Define a function that sorts the list with a parallel divide-and-conquer-style algorithm:
+
+% - Implement a function merge_sort/1
+% - It takes a list as an argument L
+% - The return value is the sorted L
+% - The input list needs to be divided into two sublists: L1 and L2 (first half of the list and second half of the list)
+% - Sort L1 and L2 in parallel with the merge_sort/1 function.
+% - The sorted sublists need to be merged
+% - The parallelization must be carried out in a divide and conquer style.
+
+% Hint: list:split and list:merge can be used in the divide and in the conquer phase.
+
+% merge_sort(L::lists()) -> SortedResult::list()
+
+sort_n_send(Pid, L) ->
+    Pid ! {self(), merge_sort(L)}.
+
+spawn_n_sort(L, Dest) ->
+    spawn(exam, sort_n_send, [Dest, L]).
+
+merge_sort([]) ->
+    [];
+merge_sort([V]) ->
+    [V];
+merge_sort(L) ->
+    {L1, L2} = lists:split(trunc(length(L) / 2), L),
+
+    Pid1 = spawn_n_sort(L1, self()),
+    Pid2 = spawn_n_sort(L2, self()),
+
+    SortedL1 =
+        receive
+            {Pid1, _L1} -> _L1
+        end,
+    SortedL2 =
+        receive
+            {Pid2, _L2} -> _L2
+        end,
+    lists:merge(SortedL1, SortedL2).
+
+% Test cases
+
+% test:merge_sort([111,11,1,12,13,23,2,3,31,22,253,4,221]) == [1,2,3,4,11,12,13,22,23,31,111,221,253]
+% test:merge_sort([5,4,3]) == [3,4,5]
+% test:merge_sort([5,4,3,5,1,3,2]) == [1,2,3,3,4,5,5]
+% test:merge_sort([5,4,3,1,2]) == [1,2,3,4,5]
+% test:merge_sort([5,4,3,1,2, 0, -3, -211]) == [-211,-3,0,1,2,3,4,5]
+
+% Task 2: Parallel map-filter-map (20 points)
+% Define a function pmfm/4 that takes three functions (F, G, H) and a list L as arguments.
+% pmfm/4 will be our main process (the master).  It starts three worker processes that
+% evaluate functions F, G and H accordingly. After this, the master sends all the elements
+% of the list L to the first process **one by one** and waits for the calculated results
+% from the last process. The master accepts messages only from the last process
+% (the one evaluating function H), so it should perform a check when a message arrives who is the sender.
+
+% The worker processes are waiting (recursively) for an element, performing their job
+% on the received element, and passing the result to the next process. So the process
+% evaluating F sends messages to the process evaluating G, and the process evaluating G
+% sends messages to the process evaluating H. Finally, the process evaluating H sends the
+% data back to the master process.
+
+% The functions:
+
+% - F is a function that maps a value to another value.
+% - G is a boolean function that returns true or false for the given element.
+% - H is a transformation function that has to be only applied on the elements where G returned true.
+
+% For example, for list L = [1, apple, 3` the F = fun(X) -> X end, H = fun is_atom/1, G = fun atom_to_list/1 applied with pmfm/4 should return ["apple"].
+
+% loop_F(F, Dest) ->
+%     receive
+%         {data, Element} ->
+%             Dest ! {data, apply(F, [Element])},
+%             loop_F(F, Dest);
+%         {done} ->
+%             Dest ! {done}
+%     end.
+
+% loop_G(G, Dest) ->
+%     receive
+%         {data, Element} ->
+%             case apply(G, [Element]) of
+%                 true ->
+%                     Dest ! {data, Element},
+%                     loop_G(G, Dest);
+%                 false ->
+%                     loop_G(G, Dest)
+%             end;
+%         {done} ->
+%             Dest ! {done}
+%     end.
+
+% loop_H(H, Dest) ->
+%     receive
+%         {data, Element} ->
+%             Dest ! {self(), apply(H, [Element])},
+%             loop_H(H, Dest);
+%         {done} ->
+%             Dest ! {self(), done}
+%     end.
+
+% send_L([H | T], Pid) ->
+%     Pid ! {data, H},
+%     send_L(T, Pid);
+% send_L([], Pid) ->
+%     Pid ! {done}.
+
+% receive_L(Pid) ->
+%     receive
+%         {Pid, done} -> [];
+%         {Pid, Element} -> [Element | receive_L(Pid)]
+%     end.
+
+% pmfm(F, G, H, L) ->
+%     PidH = spawn(exam, loop_H, [H, self()]),
+%     PidG = spawn(exam, loop_G, [G, PidH]),
+%     PidF = spawn(exam, loop_F, [F, PidG]),
+%     send_L(L, PidF),
+%     receive_L(PidH).
+
+% Write a function risky_div(A, B).
+
+% Setup: The main process should turn on exit trapping (process_flag(trap_exit, true)).
+% Spawn: It should spawn_link a worker process.
+% The Worker: Calculates A / B.
+% If B is 0, this will naturally crash the worker with badarith.
+% If valid, the worker sends {ok, Result} back to the parent.
+% The Receive Loop:
+% If you get {ok, Result}, return the result.
+% If you get an {'EXIT', Pid, Reason} message, return the atom failing_operation.
+
+div_n_send(A, B, Pid) -> Pid ! {data, (A / B)}.
+
+risky_div(A, B) ->
+    process_flag(trap_exit, true),
+    Pid = spawn_link(exam, div_n_send, [A, B, self()]),
+    receive
+        {'EXIT', Pid, _} -> failing_operation;
+        {data, Value} -> Value
+    end.
+
+% Test cases:
+% -----------
+
+% test:pmfm(fun(X)-> X end, fun erlang:is_atom/1, fun erlang:atom_to_list/1, []) ==[]
+
+% test:pmfm(fun(X)-> X end, fun erlang:is_atom/1, fun erlang:atom_to_list/1, [1, apple, 2])==["apple"]
+
+% test:pmfm(fun(X)-> X*2 end, fun(X)-> X rem 2 == 0 end, fun(X)-> X div 2 end, [1, 2, 3, 4, 5, 6]) ==[1, 2, 3, 4, 5, 6]
+
+% test:pmfm(fun(X)-> X end, fun(X)-> X rem 2 == 0 end, fun(X)-> X div 2 end, [11, 12, 13, 14, 15, 16]) == [6,7,8]
+
+% Task 3: Error handling for Task2 (10 points)
+% Handle the errors that may occur in the evaluation of pmfm/4.
+% When either F, G or H raises a runtime error, the master process has to
+% terminate immediately and return the string "Failing operation".
+
+% **Although the errors can be handled with try and catch expressions,
+% the maximum point can be achieved by process-related error handling only (link or monitor)!**
+
+loop_F(F, Dest) ->
+    receive
+        {data, Element} ->
+            Dest ! {data, apply(F, [Element])},
+            loop_F(F, Dest);
+        {done} ->
+            Dest ! {done}
+    end.
+
+loop_G(G, Dest) ->
+    receive
+        {data, Element} ->
+            case apply(G, [Element]) of
+                true ->
+                    Dest ! {data, Element},
+                    loop_G(G, Dest);
+                false ->
+                    loop_G(G, Dest)
+            end;
+        {done} ->
+            Dest ! {done}
+    end.
+
+loop_H(H, Dest) ->
+    receive
+        {data, Element} ->
+            Dest ! {self(), apply(H, [Element])},
+            loop_H(H, Dest);
+        {done} ->
+            Dest ! {self(), done}
+    end.
+
+send_L([H | T], Pid) ->
+    Pid ! {data, H},
+    send_L(T, Pid);
+send_L([], Pid) ->
+    Pid ! {done}.
+
+receive_L(Pid, Res) ->
+    receive
+        {'EXIT', _, _} -> "Failing operation";
+        {Pid, done} -> lists:reverse(Res);
+        {Pid, Element} -> receive_L(Pid, [Element | Res])
+    end.
+
+pmfm(F, G, H, L) ->
+    process_flag(trap_exit, true),
+    PidH = spawn_link(exam, loop_H, [H, self()]),
+    PidG = spawn_link(exam, loop_G, [G, PidH]),
+    PidF = spawn_link(exam, loop_F, [F, PidG]),
+    send_L(L, PidF),
+    receive_L(PidH, []).
+
+% Test cases:
+% -----------
+
+% test:pmfm(fun(X)-> X*2 end, fun(X)-> X rem 2 == 0 end, fun(X)-> X div 2 end, [1, apple, 6]).
+% "Failing operation"
+% test:pmfm(fun(X)-> X end, fun erlang:is_atom/1, fun erlang:list_to_atom/1, [1, apple, 2]).
+% "Failing operation"
