@@ -237,8 +237,18 @@ split(L, Len, N) ->
 % worker()-> true
 % dispatcher(list(pid())),integer(),list(list()))-> true
 
-master(N, L) ->
+% wait_sort_n_send(Dest) ->
+%     receive
+%         {part_of_list, UnsortedList} -> lists:sort(UnsortedList), wait_sort_n_send(Dest);
+%         ok -> ok
+%     end.
 
+% spawn_n_workers() ->
+%     [spawn(more, wait_sort_n_send, [Dest]), spawn_n_workers(N-1)
+
+% master(N, L) ->
+%     SplitList = split(L, length(L), N),
+%     spawn_n_workers()
 
 % ~~~
 
