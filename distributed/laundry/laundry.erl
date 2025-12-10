@@ -52,7 +52,8 @@ select_program(start) ->
 select_program({ProgramElement, Type}) ->
     ?PZR ! {latest_select, ProgramElement, Type, self()},
     receive
-        {success_select, UpdatedOptionList} -> {next, UpdatedOptionList}
+        {success_select, UpdatedOptionList} -> {next, UpdatedOptionList};
+        {unsucessful_select, RemainingMoney} -> {money_returned, RemainingMoney}
     end.
 %           type           dark
 checkMatch(ProgramElement, Type, CurrentNextOption) ->
@@ -72,15 +73,24 @@ handle_select(Price, OptionList, RemainingOptions, ReturnedMoney, KnownFrom) ->
                     KnownFrom ! {success_select, NewRemainingOptions},
                     handle_select(Price, OptionList, NewRemainingOptions, ReturnedMoney, KnownFrom);
                 false ->
-                    KnownFrom ! unsucessful_select,
+                    KnownFrom ! {unsucessful_select, ReturnedMoney},
                     loop(Price, OptionList)
             end;
-        {can_i_start, From} ->
+        {can_i_start, KnownFrom} ->
             case length(RemainingOptions) of
-                0 -> From ! {you_can_start, ReturnedMoney};
-                _ -> From ! {you_cannot_start, ReturnedMoney}
+                0 -> KnownFrom ! {you_can_start, ReturnedMoney};
+                _ -> KnownFrom ! {you_cannot_start, ReturnedMoney}
             end,
+            loop(Price, OptionList);
+        {cancel_req, KnownFrom} ->
+            KnownFrom ! {canceled, ReturnedMoney},
             loop(Price, OptionList)
+    end.
+
+cancel() ->
+    ?PZR ! {cancel_req, self()},
+    receive
+        {canceled, ReturnedMoney} -> {money_returned, ReturnedMoney}
     end.
 
 loop(Price, OptionList) ->
