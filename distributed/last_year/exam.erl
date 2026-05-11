@@ -50,37 +50,84 @@ balance(Ref) ->
 loop(State) ->
     receive
         {login_req, UserName, AccountNumber, UserPid} ->
-            Ref = make_ref(),
-            NewState = maps:put(Ref, {UserName, AccountNumber, 0}, State),
-            UserPid ! {login_success, Ref},
-            loop(NewState);
+            {SpawnPid, MRef} = spawn_monitor(fun() ->
+                Ref = make_ref(),
+                try
+                    NewState = maps:put(Ref, {UserName, AccountNumber, 0}, State),
+                    UserPid ! {login_success, Ref},
+                    % loop(NewState)
+                    exit({ok, NewState})
+                catch
+                    _:_ ->
+                        UserPid ! {transaction_failed, Ref, handler_terminated},
+                        exit({err, Ref})
+                end
+            end),
+            receive
+                {'DOWN', MRef, process, SpawnPid, {ok, NewState}} ->
+                    loop(NewState);
+                {'DOWN', MRef, process, SpawnPid, {err, _}} ->
+                    loop(State)
+            end;
         {logout_req, Ref, UserPid} ->
             case maps:get(Ref, State, ref_not_found) of
                 ref_not_found ->
                     UserPid ! {logout_failed, ref_not_found};
                 _UserState ->
-                    NewState = maps:remove(Ref, State),
-                    UserPid ! {logout_success, Ref},
-                    loop(NewState)
+                    {SpawnPid, MRef} = spawn_monitor(fun() ->
+                        try
+                            NewState = maps:remove(Ref, State),
+                            UserPid ! {logout_success, Ref},
+                            % loop(NewState)
+                            exit({ok, NewState})
+                        catch
+                            _:_ ->
+                                UserPid ! {transaction_failed, Ref, handler_terminated},
+                                exit({err, Ref})
+                        end
+                    end),
+                    receive
+                        {'DOWN', MRef, process, SpawnPid, {ok, NewState}} ->
+                            loop(NewState);
+                        {'DOWN', MRef, process, SpawnPid, {err, _}} ->
+                            loop(State)
+                    end
             end;
         {deposit_req, Ref, Amount, UserPid} ->
             case maps:get(Ref, State, ref_not_found) of
                 ref_not_found ->
                     UserPid ! {deposit_failed, {ref_not_found, Ref}};
                 {UserName, UserIndex, UserBalance} ->
-                    NewUserBalance = UserBalance + Amount,
-                    NewState = maps:update(Ref, {UserName, UserIndex, NewUserBalance}, State),
-                    UserPid ! {deposit_success, Ref, NewUserBalance},
-                    loop(NewState)
+                    {SpawnPid, MRef} = spawn_monitor(fun() ->
+                        try
+                            NewUserBalance = UserBalance + Amount,
+                            NewState = maps:update(
+                                Ref, {UserName, UserIndex, NewUserBalance}, State
+                            ),
+                            UserPid ! {deposit_success, Ref, NewUserBalance},
+                            % loop(NewState)
+                            exit({ok, NewState})
+                        catch
+                            _:_ ->
+                                UserPid ! {transaction_failed, Ref, handler_terminated},
+                                exit({err, Ref})
+                        end
+                    end),
+                    receive
+                        {'DOWN', MRef, process, SpawnPid, {ok, NewState}} ->
+                            loop(NewState);
+                        {'DOWN', MRef, process, SpawnPid, {err, _}} ->
+                            loop(State)
+                    end
             end;
         {balance_inquiry, Ref, UserPid} ->
             case maps:get(Ref, State, ref_not_found) of
                 ref_not_found ->
                     UserPid ! {balance_failed, {ref_not_found, Ref}};
                 {_UserName, _UserIndex, UserBalance} ->
-                    UserPid ! {current_balance, Ref, UserBalance},
-                    loop(State)
-            end;
+                    UserPid ! {current_balance, Ref, UserBalance}
+            end,
+            loop(State);
         {add_amount_from_this_ref_to_this_guy, FromRef, ToUserName, ToAccountNumber, Amount,
             UserPid} ->
             % Verifying From Ref exists
@@ -89,43 +136,68 @@ loop(State) ->
                     UserPid ! {transaction_denied, FromRef, ToAccountNumber, ref_not_found},
                     loop(State);
                 {UserName, UserIndex, UserBalance} ->
-                    % Verifying ToUserAccount exist
-                    case
-                        containsNameAndAccount(maps:keys(State), ToUserName, ToAccountNumber, State)
-                    of
-                        false ->
-                            UserPid !
-                                {transaction_denied, FromRef, ToAccountNumber,
-                                    to_user_account_not_found},
-                            loop(State);
-                        {ToRef, ToUserName, ToAccountNumber, ToBalance} ->
-                            % Check sender has enough balance
-                            if
-                                UserBalance < Amount ->
+                    {SpawnPid, MRef} = spawn_monitor(fun() ->
+                        try
+                            % Verifying ToUserAccount exist
+                            case
+                                containsNameAndAccount(
+                                    maps:keys(State), ToUserName, ToAccountNumber, State
+                                )
+                            of
+                                false ->
                                     UserPid !
                                         {transaction_denied, FromRef, ToAccountNumber,
-                                            not_enough_balance},
-                                    loop(State);
-                                true ->
-                                    NewSenderBalance = UserBalance - Amount,
-                                    NewReceiverBalance = ToBalance + Amount,
-                                    % update sender
-                                    MidState = maps:update(
-                                        FromRef, {UserName, UserIndex, NewSenderBalance}, State
-                                    ),
-                                    FinalState = maps:update(
-                                        ToRef,
-                                        {ToUserName, ToAccountNumber, NewReceiverBalance},
-                                        MidState
-                                    ),
-                                    UserPid ! {transaction_approved, NewSenderBalance},
-                                    loop(FinalState)
+                                            to_user_account_not_found},
+                                    exit({ok, State});
+                                % loop(State);
+                                {ToRef, ToUserName, ToAccountNumber, ToBalance} ->
+                                    % Check sender has enough balance
+                                    if
+                                        UserBalance < Amount ->
+                                            UserPid !
+                                                {transaction_denied, FromRef, ToAccountNumber,
+                                                    not_enough_balance},
+                                            exit({ok, State});
+                                        % loop(State);
+                                        true ->
+                                            NewSenderBalance = UserBalance - Amount,
+                                            NewReceiverBalance = ToBalance + Amount,
+                                            % update sender
+                                            MidState = maps:update(
+                                                FromRef,
+                                                {UserName, UserIndex, NewSenderBalance},
+                                                State
+                                            ),
+                                            FinalState = maps:update(
+                                                ToRef,
+                                                {ToUserName, ToAccountNumber, NewReceiverBalance},
+                                                MidState
+                                            ),
+                                            UserPid ! {transaction_approved, NewSenderBalance},
+                                            % loop(FinalState)
+                                            exit({ok, FinalState})
+                                    end
                             end
+                        catch
+                            _:_ ->
+                                UserPid ! {transaction_failed, FromRef, handler_terminated},
+                                exit({err, FromRef})
+                        end
+                    end),
+                    receive
+                        {'DOWN', MRef, process, SpawnPid, {ok, NewState}} ->
+                            loop(NewState);
+                        {'DOWN', MRef, process, SpawnPid, {err, _}} ->
+                            loop(State)
                     end
             end;
         stop ->
             io:format("Banking server stopped with state:~p~n", [State]),
-            stop
+            stop;
+        {'DOWN', _, process, _, {ok, NewState}} ->
+            loop(NewState);
+        {'DOWN', _, process, _, {err, _Ref}} ->
+            loop(State)
     end.
 
 containsNameAndAccount([], _ToUserName, _ToAccountNumber, _State) ->
